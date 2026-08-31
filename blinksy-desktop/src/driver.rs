@@ -75,7 +75,10 @@ use egui_miniquad as egui_mq;
 use glam::{vec3, Mat4, Vec3, Vec4, Vec4Swizzles};
 pub use miniquad::KeyCode;
 use miniquad::*;
-use std::sync::mpsc::{channel, Receiver, SendError, Sender};
+use std::sync::{
+    mpsc::{channel, Receiver, SendError, Sender},
+    Arc, Mutex,
+};
 
 use crate::button::{ButtonState, DesktopButton};
 
@@ -187,7 +190,9 @@ impl Desktop<Dim1d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
-            led_click_receiver,
+            led_click_receiver: LedClickReceiver {
+                receiver: Arc::new(Mutex::new(led_click_receiver)),
+            },
             is_window_closed,
         };
         let stage = DesktopStageOptions {
@@ -259,7 +264,9 @@ impl Desktop<Dim2d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
-            led_click_receiver,
+            led_click_receiver: LedClickReceiver {
+                receiver: Arc::new(Mutex::new(led_click_receiver)),
+            },
             is_window_closed,
         };
         let stage = DesktopStageOptions {
@@ -331,7 +338,9 @@ impl Desktop<Dim3d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
-            led_click_receiver,
+            led_click_receiver: LedClickReceiver {
+                receiver: Arc::new(Mutex::new(led_click_receiver)),
+            },
             is_window_closed,
         };
         let stage = DesktopStageOptions {
@@ -414,16 +423,21 @@ pub struct DesktopDriver<Dim, Layout> {
     brightness: f32,
     correction: ColorCorrection,
     sender: Sender<LedMessage>,
-    led_click_receiver: Receiver<usize>,
+    led_click_receiver: LedClickReceiver,
     is_window_closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<Dim, Layout> DesktopDriver<Dim, Layout> {
+    /// Returns a handle for receiving LED click events while this driver is in use by a control.
+    pub fn led_clicks(&self) -> LedClickReceiver {
+        self.led_click_receiver.clone()
+    }
+
     /// Returns the next LED index clicked in the simulator, if one is pending.
     ///
     /// This method never blocks. Only successful primary-button LED picks emit events.
     pub fn try_take_led_click(&self) -> Option<usize> {
-        self.led_click_receiver.try_recv().ok()
+        self.led_click_receiver.try_take_led_click()
     }
 
     fn send(&self, message: LedMessage) -> Result<(), DesktopError> {
@@ -435,6 +449,23 @@ impl<Dim, Layout> DesktopDriver<Dim, Layout> {
         }
         self.sender.send(message)?;
         Ok(())
+    }
+}
+
+/// A non-blocking receiver for LED click events from the desktop simulator.
+///
+/// Obtain a handle with [`DesktopDriver::led_clicks`] before moving the driver into a control.
+#[derive(Clone)]
+pub struct LedClickReceiver {
+    receiver: Arc<Mutex<Receiver<usize>>>,
+}
+
+impl LedClickReceiver {
+    /// Returns the next LED index clicked in the simulator, if one is pending.
+    ///
+    /// This method never blocks. Only successful primary-button LED picks emit events.
+    pub fn try_take_led_click(&self) -> Option<usize> {
+        self.receiver.lock().ok()?.try_recv().ok()
     }
 }
 
@@ -1376,7 +1407,9 @@ mod tests {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
-            led_click_receiver,
+            led_click_receiver: LedClickReceiver {
+                receiver: Arc::new(Mutex::new(led_click_receiver)),
+            },
             is_window_closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 

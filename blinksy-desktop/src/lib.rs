@@ -30,6 +30,8 @@
 //!
 //! // Create the Desktop simulator
 //! Desktop::new_2d::<PanelLayout>().start(|driver| {
+//!     // Keep this receiver before moving the driver into the control.
+//!     let led_clicks = driver.led_clicks();
 //!     // Create a control using the desktop driver instead of physical hardware
 //!     let mut control = ControlBuilder::new_2d()
 //!         .with_layout::<PanelLayout, { PanelLayout::PIXEL_COUNT }>()
@@ -40,6 +42,10 @@
 //!
 //!     // Run your normal animation loop
 //!     loop {
+//!         while let Some(led_index) = led_clicks.try_take_led_click() {
+//!             println!("LED {led_index} clicked");
+//!         }
+//!
 //!         control.tick(elapsed_in_ms()).unwrap();
 //!
 //!         // Sleep on every frame (16 ms per frame ~= 60 frames per second)

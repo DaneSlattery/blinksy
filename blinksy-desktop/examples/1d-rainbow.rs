@@ -14,6 +14,8 @@ layout1d!(StripLayout, 30);
 
 fn main() {
     Desktop::new_1d::<StripLayout>().start(|driver| {
+        // Keep a click receiver before moving the driver into the control.
+        let led_clicks = driver.led_clicks();
         let mut control = ControlBuilder::new_1d()
             .with_layout::<StripLayout, { StripLayout::PIXEL_COUNT }>()
             .with_pattern::<Rainbow>(RainbowParams {
@@ -24,6 +26,10 @@ fn main() {
             .build();
 
         loop {
+            while let Some(led_index) = led_clicks.try_take_led_click() {
+                println!("LED {led_index} clicked");
+            }
+
             if let Err(DesktopError::WindowClosed) = control.tick(elapsed_in_ms()) {
                 break;
             }
