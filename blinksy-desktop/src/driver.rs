@@ -177,6 +177,7 @@ impl Desktop<Dim1d, ()> {
         }
 
         let (sender, receiver) = channel();
+        let (led_click_sender, led_click_receiver) = channel();
         let is_window_closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let is_window_closed_2 = is_window_closed.clone();
 
@@ -186,11 +187,13 @@ impl Desktop<Dim1d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
+            led_click_receiver,
             is_window_closed,
         };
         let stage = DesktopStageOptions {
             positions,
             receiver,
+            led_click_sender,
             config,
             is_window_closed: is_window_closed_2,
         };
@@ -246,6 +249,7 @@ impl Desktop<Dim2d, ()> {
         }
 
         let (sender, receiver) = channel();
+        let (led_click_sender, led_click_receiver) = channel();
         let is_window_closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let is_window_closed_2 = is_window_closed.clone();
 
@@ -255,11 +259,13 @@ impl Desktop<Dim2d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
+            led_click_receiver,
             is_window_closed,
         };
         let stage = DesktopStageOptions {
             positions,
             receiver,
+            led_click_sender,
             config,
             is_window_closed: is_window_closed_2,
         };
@@ -315,6 +321,7 @@ impl Desktop<Dim3d, ()> {
         }
 
         let (sender, receiver) = channel();
+        let (led_click_sender, led_click_receiver) = channel();
         let is_window_closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let is_window_closed_2 = is_window_closed.clone();
 
@@ -324,11 +331,13 @@ impl Desktop<Dim3d, ()> {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             sender,
+            led_click_receiver,
             is_window_closed,
         };
         let stage = DesktopStageOptions {
             positions,
             receiver,
+            led_click_sender,
             config,
             is_window_closed: is_window_closed_2,
         };
@@ -405,10 +414,18 @@ pub struct DesktopDriver<Dim, Layout> {
     brightness: f32,
     correction: ColorCorrection,
     sender: Sender<LedMessage>,
+    led_click_receiver: Receiver<usize>,
     is_window_closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<Dim, Layout> DesktopDriver<Dim, Layout> {
+    /// Returns the next LED index clicked in the simulator, if one is pending.
+    ///
+    /// This method never blocks. Only successful primary-button LED picks emit events.
+    pub fn try_take_led_click(&self) -> Option<usize> {
+        self.led_click_receiver.try_recv().ok()
+    }
+
     fn send(&self, message: LedMessage) -> Result<(), DesktopError> {
         if self
             .is_window_closed
@@ -1056,6 +1073,7 @@ impl Renderer {
 struct DesktopStageOptions {
     pub positions: Vec<Vec3>,
     pub receiver: Receiver<LedMessage>,
+    pub led_click_sender: Sender<usize>,
     pub config: DesktopConfig,
     pub is_window_closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -1069,6 +1087,7 @@ struct DesktopStage {
     brightness: f32,
     correction: ColorCorrection,
     receiver: Receiver<LedMessage>,
+    led_click_sender: Sender<usize>,
     camera: Camera,
     config: DesktopConfig,
     is_window_closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -1103,6 +1122,7 @@ impl DesktopStage {
         let DesktopStageOptions {
             positions,
             receiver,
+            led_click_sender,
             config,
             is_window_closed,
         } = options;
@@ -1136,6 +1156,7 @@ impl DesktopStage {
             brightness: 1.0,
             correction: ColorCorrection::default(),
             receiver,
+            led_click_sender,
             camera,
             config,
             is_window_closed,
@@ -1294,6 +1315,9 @@ impl EventHandler for DesktopStage {
             if !self.mouse_down {
                 // Only do picking when button is first pressed
                 self.led_picker.try_select_at(x, y, &self.camera);
+                if let Some(led_index) = self.led_picker.selected_led {
+                    let _ = self.led_click_sender.send(led_index);
+                }
             }
 
             self.mouse_down = true;
@@ -1335,6 +1359,33 @@ impl EventHandler for DesktopStage {
     fn quit_requested_event(&mut self) {
         self.is_window_closed
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_take_led_click_returns_pending_clicks_in_order() {
+        let (sender, _) = channel();
+        let (led_click_sender, led_click_receiver) = channel();
+        let driver = DesktopDriver::<(), ()> {
+            dim: PhantomData,
+            layout: PhantomData,
+            brightness: 1.0,
+            correction: ColorCorrection::default(),
+            sender,
+            led_click_receiver,
+            is_window_closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+
+        led_click_sender.send(2).unwrap();
+        led_click_sender.send(7).unwrap();
+
+        assert_eq!(driver.try_take_led_click(), Some(2));
+        assert_eq!(driver.try_take_led_click(), Some(7));
+        assert_eq!(driver.try_take_led_click(), None);
     }
 }
 
