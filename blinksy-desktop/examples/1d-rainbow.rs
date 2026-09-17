@@ -13,7 +13,7 @@ use std::{thread::sleep, time::Duration};
 layout1d!(StripLayout, 30);
 
 fn main() {
-    Desktop::new_1d::<StripLayout>().start(|driver| {
+    Desktop::new_1d::<StripLayout>().start(|mut driver| {
         // Keep a click receiver before moving the driver into the control.
         let led_clicks = driver.led_clicks();
         let mut control = ControlBuilder::new_1d()
